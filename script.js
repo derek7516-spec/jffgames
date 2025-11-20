@@ -1,144 +1,340 @@
-const BOARD_SIZE = 8;
-const FRUIT_LEVELS = 9; // Maximum fruit level (9.png is the highest)
-const INITIAL_SPAWN_COUNT = 8;
-const NEW_FRUITS_PER_MOVE = 2;
-const MAX_SPAWN_LEVEL = 3; // Only spawn levels 1-3, higher levels come from merging
-let board = [];
+// Matter.js module aliases
+const { Engine, Render, Runner, World, Bodies, Body, Events, Mouse, MouseConstraint } = Matter;
+
+// Game constants
+// Biggest fruit radius is 76, diameter = 152
+// Container width = 3 × 152 = 456 (approximately 450 for round number)
+const CANVAS_WIDTH = 300;
+const CANVAS_HEIGHT = 500;
+const WALL_THICKNESS = 15;
+const DANGER_LINE = 120; // Danger line position (lower value = higher up)
+
+// Fruit sizes (radius) for levels 1-9
+// Biggest fruit should be about 1/3 of container width
+// Container = 300, so biggest = ~100 diameter = 50 radius
+// Hitbox matches the actual visible fruit content (no transparent background)
+const FRUIT_SIZE_MULTIPLIER = 2.0; // Adjust this to scale all fruits (1.0 = normal, 1.5 = 50% bigger, 2.0 = double size)
+const BASE_FRUIT_SIZES = [12, 16, 20, 24, 29, 34, 40, 45, 50];
+const FRUIT_SIZES = BASE_FRUIT_SIZES.map(size => size * FRUIT_SIZE_MULTIPLIER);
+// PNG images are 64x64, but actual fruit content is smaller due to transparent edges
+// If your fruit takes up ~90% of the PNG, adjust this value
+const IMAGE_CONTENT_RATIO = 0.90; // 90% of image is actual fruit, 10% is transparent
+
+// Fruit colors for levels 1-9
+const FRUIT_COLORS = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', 
+    '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2', '#52BE80'
+];
+
+// Game state
+let engine, render, runner, world;
 let score = 0;
-let selectedCell = null;
+let nextFruitLevel = 1;
+let currentFruit = null;
+let canDrop = true;
+let gameOver = false;
+let fruits = [];
+let images = {};
+let dangerLineTimer = 0; // Timer for game over condition
 
-function initBoard() {
-    board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
+// Preload fruit images
+function preloadImages() {
+    for (let i = 1; i <= 9; i++) {
+        const img = new Image();
+        img.src = `img/${i}.png`;
+        images[i] = img;
+    }
+}
+
+// Initialize game
+function initGame() {
+    // Reset game state
     score = 0;
-    selectedCell = null;
+    nextFruitLevel = Math.floor(Math.random() * 3) + 1; // Start with level 1-3
+    currentFruit = null;
+    canDrop = true;
+    gameOver = false;
+    fruits = [];
+    dangerLineTimer = 0;
+    
     updateScore();
-    spawnFruits(INITIAL_SPAWN_COUNT); // Initial spawn
-    renderBoard();
-}
-
-function spawnFruits(count) {
-    let emptyCells = [];
-    for (let r = 0; r < BOARD_SIZE; r++) {
-        for (let c = 0; c < BOARD_SIZE; c++) {
-            if (board[r][c] === 0) emptyCells.push([r, c]);
+    updateNextFruit();
+    document.getElementById('game-over').classList.add('hidden');
+    
+    // Create engine
+    engine = Engine.create();
+    world = engine.world;
+    world.gravity.y = 1;
+    
+    // Create renderer
+    const canvas = document.getElementById('gameCanvas');
+    render = Render.create({
+        canvas: canvas,
+        engine: engine,
+        options: {
+            width: CANVAS_WIDTH,
+            height: CANVAS_HEIGHT,
+            wireframes: false,
+            background: '#fef9e7'
         }
-    }
-    for (let i = 0; i < count && emptyCells.length > 0; i++) {
-        let idx = Math.floor(Math.random() * emptyCells.length);
-        let [r, c] = emptyCells.splice(idx, 1)[0];
-        // Only spawn low-level fruits (1.png, 2.png, 3.png)
-        // Higher levels (4-9.png) must be earned by merging
-        board[r][c] = Math.floor(Math.random() * MAX_SPAWN_LEVEL) + 1;
-    }
+    });
+    
+    Render.run(render);
+    
+    // Create runner
+    runner = Runner.create();
+    Runner.run(runner, engine);
+    
+    // Create walls and floor
+    const ground = Bodies.rectangle(CANVAS_WIDTH / 2, CANVAS_HEIGHT + 30, CANVAS_WIDTH, 60, {
+        isStatic: true,
+        render: { fillStyle: '#8B4513' }
+    });
+    
+    const leftWall = Bodies.rectangle(-10, CANVAS_HEIGHT / 2, WALL_THICKNESS, CANVAS_HEIGHT, {
+        isStatic: true,
+        render: { fillStyle: '#8B4513' }
+    });
+    
+    const rightWall = Bodies.rectangle(CANVAS_WIDTH + 10, CANVAS_HEIGHT / 2, WALL_THICKNESS, CANVAS_HEIGHT, {
+        isStatic: true,
+        render: { fillStyle: '#8B4513' }
+    });
+    
+    // Danger line (visual only)
+    const dangerLine = Bodies.rectangle(CANVAS_WIDTH / 2, DANGER_LINE, CANVAS_WIDTH, 2, {
+        isStatic: true,
+        isSensor: true,
+        render: { fillStyle: '#e74c3c', opacity: 0.5 }
+    });
+    
+    World.add(world, [ground, leftWall, rightWall, dangerLine]);
+    
+    // Mouse control for dropping fruits
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('click', handleClick);
+    
+    // Collision detection for merging
+    Events.on(engine, 'collisionStart', handleCollision);
+    
+    // Check game over condition
+    Events.on(engine, 'afterUpdate', checkGameOverCondition);
+    
+    // Create first fruit
+    createNextFruit();
 }
 
-function renderBoard() {
-    const boardEl = document.getElementById('board');
-    boardEl.innerHTML = '';
-    for (let r = 0; r < BOARD_SIZE; r++) {
-        for (let c = 0; c < BOARD_SIZE; c++) {
-            const cell = document.createElement('div');
-            cell.className = 'cell';
-            cell.dataset.row = r;
-            cell.dataset.col = c;
-            if (board[r][c] > 0) {
-                const img = document.createElement('img');
-                img.src = `img/${board[r][c]}.png`;
-                img.alt = `Fruit ${board[r][c]}`;
-                cell.appendChild(img);
+function createNextFruit() {
+    if (gameOver) return;
+    
+    const targetRadius = FRUIT_SIZES[nextFruitLevel - 1];
+    const x = CANVAS_WIDTH / 2;
+    const y = 50;
+    
+    // PNG images are 64x64 pixels, but have transparent padding
+    // We want sprite to display at targetRadius size
+    const imageSize = 64;
+    const scale = (targetRadius * 2) / imageSize;
+    
+    // Physics radius matches the actual fruit content (excluding transparent edges)
+    const physicsRadius = targetRadius * IMAGE_CONTENT_RATIO;
+    
+    currentFruit = Bodies.circle(x, y, physicsRadius, {
+        restitution: 0.3,
+        friction: 0.5,
+        density: 0.001,
+        isStatic: true,
+        render: {
+            sprite: {
+                texture: `img/${nextFruitLevel}.png`,
+                xScale: scale,
+                yScale: scale
             }
-            if (selectedCell && selectedCell[0] === r && selectedCell[1] === c) {
-                cell.style.border = '2px solid blue';
-            }
-            cell.addEventListener('click', () => handleCellClick(r, c));
-            boardEl.appendChild(cell);
         }
-    }
+    });
+    
+    currentFruit.fruitLevel = nextFruitLevel;
+    currentFruit.isFruit = true;
+    currentFruit.targetRadius = targetRadius; // Store for boundary checks
+    
+    World.add(world, currentFruit);
 }
 
-function handleCellClick(r, c) {
-    if (selectedCell === null) {
-        if (board[r][c] > 0) {
-            selectedCell = [r, c];
-            renderBoard();
-        }
-    } else {
-        const [sr, sc] = selectedCell;
-        if (sr === r && sc === c) {
-            // Deselect
-            selectedCell = null;
-            renderBoard();
-        } else if (board[r][c] === 0) {
-            // Move to empty cell
-            board[r][c] = board[sr][sc];
-            board[sr][sc] = 0;
-            selectedCell = null;
-            applyGravity();
-            spawnFruits(NEW_FRUITS_PER_MOVE); // Spawn new fruits after move
-            renderBoard();
-            checkGameOver();
-        } else if (board[r][c] === board[sr][sc] && board[r][c] < FRUIT_LEVELS) {
-            // Merge
-            board[r][c]++;
-            board[sr][sc] = 0;
-            score += board[r][c] * 10;
-            updateScore();
-            selectedCell = null;
+function handleMouseMove(event) {
+    if (!currentFruit || !canDrop || gameOver) return;
+    
+    const rect = event.target.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    
+    // Keep fruit within bounds using target radius (visual boundary)
+    const targetRadius = currentFruit.targetRadius;
+    const minX = targetRadius + WALL_THICKNESS;
+    const maxX = CANVAS_WIDTH - targetRadius - WALL_THICKNESS;
+    const clampedX = Math.max(minX, Math.min(maxX, mouseX));
+    
+    Body.setPosition(currentFruit, { x: clampedX, y: 50 });
+}
+
+function handleClick() {
+    if (!currentFruit || !canDrop || gameOver) return;
+    
+    // Drop the fruit
+    Body.setStatic(currentFruit, false);
+    canDrop = false;
+    
+    // Wait for fruit to settle before allowing next drop
+    setTimeout(() => {
+        currentFruit = null;
+        nextFruitLevel = Math.floor(Math.random() * 3) + 1; // Random level 1-3
+        updateNextFruit();
+        
+        setTimeout(() => {
+            canDrop = true;
+            createNextFruit();
+        }, 500);
+    }, 300);
+}
+
+function handleCollision(event) {
+    const pairs = event.pairs;
+    
+    for (let pair of pairs) {
+        const bodyA = pair.bodyA;
+        const bodyB = pair.bodyB;
+        
+        // Check if both are fruits and same level
+        if (bodyA.isFruit && bodyB.isFruit && 
+            bodyA.fruitLevel === bodyB.fruitLevel &&
+            bodyA.fruitLevel < 9) {
             
-            // Check if player created the ultimate fruit (level 9)
-            if (board[r][c] === FRUIT_LEVELS) {
+            // Merge fruits
+            const level = bodyA.fruitLevel;
+            const newLevel = level + 1;
+            
+            // Calculate position for new fruit (average of both)
+            const x = (bodyA.position.x + bodyB.position.x) / 2;
+            const y = (bodyA.position.y + bodyB.position.y) / 2;
+            
+            // Remove old fruits
+            World.remove(world, bodyA);
+            World.remove(world, bodyB);
+            
+            // Create new merged fruit
+            const targetRadius = FRUIT_SIZES[newLevel - 1];
+            
+            // Calculate proper sprite scale (PNG images are 64x64)
+            const imageSize = 64;
+            const scale = (targetRadius * 2) / imageSize;
+            
+            // Physics radius matches actual fruit content (no transparent background)
+            const physicsRadius = targetRadius * IMAGE_CONTENT_RATIO;
+            
+            const newFruit = Bodies.circle(x, y, physicsRadius, {
+                restitution: 0.3,
+                friction: 0.5,
+                density: 0.001,
+                render: {
+                    sprite: {
+                        texture: `img/${newLevel}.png`,
+                        xScale: scale,
+                        yScale: scale
+                    }
+                }
+            });
+            
+            newFruit.fruitLevel = newLevel;
+            newFruit.isFruit = true;
+            newFruit.targetRadius = targetRadius;
+            
+            World.add(world, newFruit);
+            
+            // Update score
+            score += newLevel * 10;
+            updateScore();
+            
+            // Check if reached max level
+            if (newLevel === 9) {
                 setTimeout(() => {
-                    alert(`🎉 恭喜！你創造了最高級水果 (${FRUIT_LEVELS}.png)！\n當前分數: ${score}`);
+                    alert('🎉 恭喜！你創造了西瓜 (最高級水果)！');
                 }, 100);
             }
-            
-            applyGravity();
-            spawnFruits(NEW_FRUITS_PER_MOVE); // Spawn new fruits after merge
-            renderBoard();
-            checkGameOver();
-        } else {
-            // Invalid move, deselect
-            selectedCell = null;
-            renderBoard();
         }
     }
 }
 
-function applyGravity() {
-    for (let c = 0; c < BOARD_SIZE; c++) {
-        let writeRow = BOARD_SIZE - 1;
-        for (let r = BOARD_SIZE - 1; r >= 0; r--) {
-            if (board[r][c] > 0) {
-                board[writeRow][c] = board[r][c];
-                if (writeRow !== r) board[r][c] = 0;
-                writeRow--;
+function checkGameOverCondition() {
+    if (gameOver) return;
+    
+    // Check if any settled fruit is above danger line
+    const allBodies = World.allBodies(world);
+    let fruitAboveLine = false;
+    
+    for (let body of allBodies) {
+        // Skip current fruit being held and check only dropped fruits
+        if (body.isFruit && body !== currentFruit && !body.isStatic) {
+            // Check if fruit center is above danger line
+            if (body.position.y < DANGER_LINE) {
+                // Check if fruit is relatively still (settled)
+                const velocity = Math.sqrt(body.velocity.x * body.velocity.x + body.velocity.y * body.velocity.y);
+                if (velocity < 2.0) { // Fruit is moving slowly or stopped
+                    fruitAboveLine = true;
+                    break;
+                }
             }
         }
     }
+    
+    // If fruit is above line, increment timer
+    if (fruitAboveLine) {
+        dangerLineTimer++;
+        // Game over after ~1 second (60 frames at 60fps)
+        if (dangerLineTimer > 60) {
+            triggerGameOver();
+        }
+    } else {
+        // Reset timer if no fruits above line
+        dangerLineTimer = 0;
+    }
+}
+
+function triggerGameOver() {
+    gameOver = true;
+    canDrop = false;
+    
+    document.getElementById('final-score').textContent = score;
+    document.getElementById('game-over').classList.remove('hidden');
 }
 
 function updateScore() {
     document.getElementById('score').textContent = `分數: ${score}`;
 }
 
-function checkGameOver() {
-    // Simple check: if no empty cells and no possible merges
-    let hasEmpty = false;
-    let canMerge = false;
-    for (let r = 0; r < BOARD_SIZE; r++) {
-        for (let c = 0; c < BOARD_SIZE; c++) {
-            if (board[r][c] === 0) hasEmpty = true;
-            // Check adjacent
-            if (r > 0 && board[r][c] === board[r-1][c] && board[r][c] < FRUIT_LEVELS) canMerge = true;
-            if (c > 0 && board[r][c] === board[r][c-1] && board[r][c] < FRUIT_LEVELS) canMerge = true;
-        }
-    }
-    if (!hasEmpty && !canMerge) {
-        alert('遊戲結束！分數: ' + score);
-    }
+function updateNextFruit() {
+    document.getElementById('next-level').textContent = nextFruitLevel;
 }
 
-document.getElementById('restart').addEventListener('click', initBoard);
+function restartGame() {
+    // Clean up old game
+    if (world) {
+        World.clear(world, false);
+        Engine.clear(engine);
+    }
+    if (render) {
+        Render.stop(render);
+    }
+    if (runner) {
+        Runner.stop(runner);
+    }
+    
+    // Start new game
+    initGame();
+}
 
-// Start game
-initBoard();
+// Event listeners
+document.getElementById('restart').addEventListener('click', restartGame);
+
+// Preload images and start game
+preloadImages();
+setTimeout(() => {
+    initGame();
+}, 100);

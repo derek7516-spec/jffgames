@@ -1,66 +1,98 @@
 body {
-    font-family: Arial, sans-serif;
+    font-family: 'Arial', sans-serif;
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
+    min-height: 100vh;
     margin: 0;
-    background-color: #f0f0f1;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 #game-container {
     text-align: center;
+    background: white;
+    padding: 12px;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
 }
 
-#board {
-    display: grid;
-    grid-template-columns: repeat(8, 60px);
-    grid-template-rows: repeat(8, 60px);
-    gap: 5px;
-    margin: 20px auto;
-    background-color: #fff;
-    padding: 10px;
-    border-radius: 10px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.1);
-}
-
-.cell {
-    width: 60px;
-    height: 60px;
-    background-color: #eee;
-    border-radius: 5px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.cell:hover {
-    background-color: #ddd;
-}
-
-.cell img {
-    max-width: 100%;
-    max-height: 100%;
-    border-radius: 5px;
+h1 {
+    margin: 0 0 6px 0;
+    color: #333;
+    font-size: 24px;
 }
 
 #score {
-    font-size: 24px;
-    margin-bottom: 10px;
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 6px;
+    color: #667eea;
+}
+
+#next-fruit {
+    font-size: 14px;
+    margin-bottom: 6px;
+    color: #555;
+}
+
+#next-level {
+    font-weight: bold;
+    color: #764ba2;
+}
+
+#gameCanvas {
+    border: 2px solid #333;
+    border-radius: 8px;
+    background: #fef9e7;
+    display: block;
+    margin: 0 auto 12px;
+    cursor: pointer;
+}
+
+#game-over {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255, 255, 255, 0.95);
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    z-index: 1000;
+    min-width: 300px;
+}
+
+#game-over.hidden {
+    display: none;
+}
+
+#game-over h2 {
+    color: #e74c3c;
+    margin: 0 0 15px 0;
+    font-size: 120px;
+}
+
+#game-over p {
+    font-size: 20px;
+    color: #333;
 }
 
 #restart {
-    padding: 10px 20px;
-    font-size: 16px;
+    padding: 8px 20px;
+    font-size: 14px;
     cursor: pointer;
-    background-color: #4CAF50;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border: none;
-    border-radius: 5px;
+    border-radius: 18px;
+    font-weight: bold;
+    transition: transform 0.2s;
 }
 
 #restart:hover {
-    background-color: #45a049;
+    transform: scale(1.05);
+}
+
+#restart:active {
+    transform: scale(0.95);
 }

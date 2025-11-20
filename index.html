@@ -3,16 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>水果合併遊戲</title>
+    <title>西瓜遊戲 Suika Game</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="game-container">
-        <h1>水果合併遊戲</h1>
+        <h1>🍉 西瓜遊戲</h1>
         <div id="score">分數: 0</div>
-        <div id="board"></div>
+        <div id="next-fruit">下一個: <span id="next-level">1</span></div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="game-over" class="hidden">
+            <h2>遊戲結束！</h2>
+            <p>最終分數: <span id="final-score">0</span></p>
+        </div>
         <button id="restart">重新開始</button>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
